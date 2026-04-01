@@ -11,8 +11,4 @@ m = folium.Map(
     tiles="CartoDB positron"
 )
 
-gdf = gpd.read_file("./Data/Grid.json")
-
-folium.GeoJson(gdf, name="Grid").add_to(m)
-
 st_folium(m, width=700, height=500)
