@@ -1,19 +1,6 @@
-# 🎈 Blank app template
+# Camera Trap Visualization
 
-A simple Streamlit app template for you to modify!
+visualization based on camera trap spreadsheet data
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://blank-app-template.streamlit.app/)
 
-### How to run it on your own machine
-
-1. Install the requirements
-
-   ```
-   $ pip install -r requirements.txt
-   ```
-
-2. Run the app
-
-   ```
-   $ streamlit run streamlit_app.py
-   ```
+[![Camera Trap Database]]([https://blank-app-template.streamlit.app/](https://docs.google.com/spreadsheets/d/1o3EIYudtvLR_mMxknK9nIE4k3ulv02sP7aCT2trDX_g/edit?usp=sharing))
