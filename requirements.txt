@@ -4,3 +4,4 @@ streamlit-folium
 requests
 pandas
 shapely
+plotly
