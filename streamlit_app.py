@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 from shapely.geometry import Point, shape
 import json
+import plotly.express as px
 
 st.set_page_config(page_title="Draft - Monitoring camtrap", layout="wide")
 
@@ -37,26 +38,23 @@ geojson1 = load_geojson("https://drive.google.com/uc?export=download&id=19pbjbed
 geojson2 = load_geojson("https://drive.google.com/uc?export=download&id=148vZDiPQxhCOnxZ-8eqlxvcy0H0__oub")
 geojson3 = load_geojson("https://drive.google.com/uc?export=download&id=19eNxhUKyGC3_3ZbvjQ_luiwFLa-L7aGU")
 
-df = load_sheet("1o3EIYudtvLR_mMxknK9nIE4k3ulv02sP7aCT2trDX_g")
+df = load_sheet("1aSlHTdSJOm4CIDbe9VV7eOfRfxfUgyBWZl0EKMDXzXA")
 df = df.rename(columns={
     df.columns[0]:  "No",
-    df.columns[1]:  "Lokasi",
-    df.columns[2]:  "Latitude",
-    df.columns[3]:  "Longitude",
-    df.columns[4]:  "ID_Camera",
-    df.columns[5]:  "Nama_File",
-    df.columns[6]:  "Tanggal",
-    df.columns[7]:  "Jam",
-    df.columns[8]:  "Kelas",
-    df.columns[9]:  "Spesies",
-    df.columns[10]: "Nama_Lokal",
-    df.columns[11]: "Status_IUCN",
-    df.columns[12]: "Regulasi",
-    df.columns[13]: "Jml_Tangkapan",
+    df.columns[4]:  "Lokasi",
+    df.columns[5]:  "Latitude",
+    df.columns[6]:  "Longitude",
+    df.columns[7]:  "ID_Camera",
+    df.columns[8]:  "Tanggal",
+    df.columns[9]:  "Jam",
+    df.columns[11]:  "Kelas",
+    df.columns[12]:  "Spesies",
+    df.columns[13]: "Nama_Lokal",
+    df.columns[14]: "Status_IUCN",
+    df.columns[15]: "Jml_Tangkapan",
+    df.columns[18]:  "Nama_File",
 })
 df = df.dropna(subset=["Latitude", "Longitude"])
-
-# Kolom N: konversi ke numerik, isi kosong dengan 0
 df["Jml_Tangkapan"] = pd.to_numeric(df["Jml_Tangkapan"], errors="coerce").fillna(0)
 
 COORD_PRECISION = 6
@@ -120,7 +118,6 @@ legend_labels = make_legend_labels(classes)
 
 m = folium.Map(location=[0.7870908235692126, 110.27529459792473], zoom_start=12, tiles="CartoDB dark_matter")
 
-# Layer 1 - Area CMI
 folium.GeoJson(
     geojson1, name="Area CMI",
     style_function=lambda f: {
@@ -128,7 +125,6 @@ folium.GeoJson(
     }
 ).add_to(m)
 
-# Layer 2 - Grid
 grid_group = folium.FeatureGroup(name="Grid Intensitas Kamera", show=True)
 for i, feature in enumerate(geojson2["features"]):
     count = grid_camera_count.get(i, 0)
@@ -146,7 +142,6 @@ for i, feature in enumerate(geojson2["features"]):
     ).add_to(grid_group)
 grid_group.add_to(m)
 
-# Layer 3 - Forest Area (default OFF)
 forest_group = folium.FeatureGroup(name="Forest Area", show=False)
 folium.GeoJson(
     geojson3,
@@ -157,7 +152,6 @@ folium.GeoJson(
 ).add_to(forest_group)
 forest_group.add_to(m)
 
-# Legenda
 legend_items_html = ""
 for i, label in enumerate(legend_labels):
     legend_items_html += f"""
@@ -284,4 +278,69 @@ for (lat_r, lon_r), coord_group in df.groupby(["Lat_r", "Lon_r"]):
 point_group.add_to(m)
 folium.LayerControl().add_to(m)
 
-st_folium(m, width="100%", height=580)
+map_data = st_folium(m, width="100%", height=580)
+
+#TREEMAP
+st.divider()
+st.subheader("🌿 Treemap Tangkapan Spesies per Kamera")
+
+clicked_info = map_data.get("last_object_clicked_popup") if map_data else None
+
+all_cameras = sorted(df["ID_Camera"].dropna().unique().tolist())
+selected_cameras = st.multiselect(
+    "Filter berdasarkan ID Kamera (kosongkan = semua kamera)",
+    options=all_cameras,
+    default=[],
+    placeholder="Pilih satu atau lebih kamera..."
+)
+
+df_filtered = df[df["Jml_Tangkapan"] > 0].copy()
+if selected_cameras:
+    df_filtered = df_filtered[df_filtered["ID_Camera"].isin(selected_cameras)]
+
+df_tree = (
+    df_filtered
+    .groupby(["Kelas", "Spesies", "Nama_Lokal", "Status_IUCN"], dropna=False)
+    .agg(Total=("Jml_Tangkapan", "sum"))
+    .reset_index()
+)
+df_tree["Status_IUCN"] = df_tree["Status_IUCN"].fillna("Tidak diketahui")
+df_tree["Label"] = df_tree["Spesies"] + "<br><i>" + df_tree["Nama_Lokal"].fillna("") + "</i>"
+
+if df_tree.empty:
+    st.info("Tidak ada data tangkapan untuk filter yang dipilih.")
+else:
+    fig = px.treemap(
+        df_tree,
+        path=[px.Constant("Semua"), "Kelas", "Spesies"],
+        values="Total",
+        color="Kelas",
+        hover_data={
+            "Nama_Lokal": True,
+            "Status_IUCN": True,
+            "Total": True,
+            "Kelas": False,
+            "Spesies": False,
+        },
+        color_discrete_sequence=px.colors.qualitative.Safe,
+        title="Distribusi Tangkapan per Spesies" + (
+            f" — Kamera: {', '.join(str(c) for c in selected_cameras)}"
+            if selected_cameras else " — Semua Kamera"
+        ),
+    )
+    fig.update_traces(
+        texttemplate="<b>%{label}</b><br>%{value} tangkapan",
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "Nama Lokal: %{customdata[0]}<br>"
+            "Status IUCN: %{customdata[1]}<br>"
+            "Total Tangkapan: %{value}<extra></extra>"
+        ),
+        root_color="rgba(0,0,0,0)",
+    )
+    fig.update_layout(
+        height=520,
+        margin=dict(t=50, l=10, r=10, b=10),
+        font_family="Arial",
+    )
+    st.plotly_chart(fig, use_container_width=True)
