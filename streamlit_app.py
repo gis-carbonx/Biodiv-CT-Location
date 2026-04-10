@@ -9,9 +9,8 @@ import json
 st.set_page_config(page_title="Draft - Monitoring camtrap", layout="wide")
 
 st.title("Draft - Monitoring camtrap")
-st.markdown("testsad asoda jadsiadsan sdasdksdandp asdsjni asdsjadnpsad asdksn asd asdkmpovdsv mk[ psannaspffnunjsadksamdsandsadnm asdpianfhaaslas].")
+st.markdown("Sebaran titik kamera jebak pada area PT Citra Mulia Inti. Peta menampilkan grid monitoring 2x2 km, sebagai indikasi kegiatan monitoring biodiversitas di area tersebut.")
 
-# Cached loaders
 @st.cache_data
 def load_geojson(url):
     return requests.get(url).json()
@@ -32,10 +31,8 @@ def compute_grid_camera(geojson2_str, point_camera_tuples):
         result[i] = len(cameras)
     return result
 
-# geojson data, 1 (area cmi), 2 (grid), 3 (forest cover)
 geojson1 = load_geojson("https://drive.google.com/uc?export=download&id=19pbjbedC3iF48QgLbatDA-XeNF4flIgc")
 geojson2 = load_geojson("https://drive.google.com/uc?export=download&id=148vZDiPQxhCOnxZ-8eqlxvcy0H0__oub")
-geojson3 = load_geojson("https://drive.google.com/uc?export=download&id=19eNxhUKyGC3_3ZbvjQ_luiwFLa-L7aGU")
 
 df = load_sheet("1aSlHTdSJOm4CIDbe9VV7eOfRfxfUgyBWZl0EKMDXzXA")
 df = df.rename(columns={
@@ -46,16 +43,14 @@ df = df.rename(columns={
     df.columns[7]:  "ID_Camera",
     df.columns[8]:  "Tanggal",
     df.columns[9]:  "Jam",
-    df.columns[11]:  "Kelas",
-    df.columns[12]:  "Spesies",
+    df.columns[11]: "Kelas",
+    df.columns[12]: "Spesies",
     df.columns[13]: "Nama_Lokal",
     df.columns[14]: "Status_IUCN",
     df.columns[15]: "Jml_Tangkapan",
-    df.columns[18]:  "Nama_File",
+    df.columns[18]: "Nama_File",
 })
 df = df.dropna(subset=["Latitude", "Longitude"])
-
-# Kolom N: konversi ke numerik, isi kosong dengan 0
 df["Jml_Tangkapan"] = pd.to_numeric(df["Jml_Tangkapan"], errors="coerce").fillna(0)
 
 COORD_PRECISION = 6
@@ -73,6 +68,53 @@ col2.metric("Jumlah Spesies", total_spesies)
 col3.metric("Jumlah Kamera", total_camera)
 col4.metric("Jumlah Lokasi", total_lokasi)
 
+# LULC
+st.sidebar.markdown("#### Layer")
+cmi_visible  = st.sidebar.checkbox("Project area CMI", value=True)
+grid_visible = st.sidebar.checkbox("Monitoring grid 2x2", value=True)
+cam_visible  = st.sidebar.checkbox("Camera trap point", value=True)
+st.sidebar.markdown("---")
+st.sidebar.markdown("#### Land Use Land Cover")
+lulc_visible = st.sidebar.checkbox("LULC 2023", value=False)
+lulc_opacity = 0.7
+if lulc_visible:
+    with st.sidebar.expander("LULC Setting", expanded=False):
+        lulc_opacity = st.slider("Opacity", 0.0, 1.0, 0.7, 0.05, key="lulc_opacity")
+
+
+
+# ── LULC Legend (only when visible) ──
+lulc_legend_items = [
+    {"color": "#E8251F", "label": "Building"},
+    {"color": "#9E9E9E", "label": "Cleared / Bare Land"},
+    {"color": "#E8A838", "label": "Oil Palm / Newly Planted"},
+    {"color": "#2D6A2D", "label": "Forest"},
+    {"color": "#D4E89A", "label": "Mixed Dry Agriculture"},
+    {"color": "#7CBF5A", "label": "Old Shrubs"},
+    {"color": "#1A1A1A", "label": "Road"},
+    {"color": "#C2F081", "label": "Shrubs"},
+    {"color": "#B8D4E8", "label": "Water"},
+]
+
+if lulc_visible:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("#### Legend")
+    for item in lulc_legend_items:
+        st.sidebar.markdown(
+            f"""
+            <div style="display:flex; align-items:center; margin-bottom:6px;">
+                <div style="width:16px; height:16px; background:{item['color']};
+                            border-radius:3px; margin-right:10px; flex-shrink:0;
+                            border:1px solid rgba(255,255,255,0.3);"></div>
+                <span style="font-size:13px;">{item['label']}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+    st.sidebar.markdown("---")
+    st.sidebar.caption("The 2023 land cover dataset was produced using SPOT 6 remote sensing data.")
+
+#grid camera x titik kamera
 point_camera_tuples = tuple(
     (row["Latitude"], row["Longitude"], row["ID_Camera"])
     for _, row in df.iterrows()
@@ -90,9 +132,9 @@ else:
 if not classes:
     classes = [1]
 
-color_palette = ["#FFFF00", "#FFA500", "#FF4500", "#CC0000"]
-colors    = color_palette[:len(classes)]
-opacities = [0.25, 0.40, 0.55, 0.70][:len(classes)]
+color_palette  = ["#FFFF00", "#FFA500", "#FF4500", "#CC0000"]
+colors         = color_palette[:len(classes)]
+base_opacities = [0.25, 0.40, 0.55, 0.70][:len(classes)]
 
 def get_class_index(count):
     if count == 0: return -1
@@ -106,7 +148,7 @@ def get_color(count):
 
 def get_fill_opacity(count):
     idx = get_class_index(count)
-    return opacities[idx] if idx >= 0 else 0
+    return base_opacities[idx] if idx >= 0 else 0
 
 def make_legend_labels(classes):
     labels = []
@@ -117,170 +159,189 @@ def make_legend_labels(classes):
 
 legend_labels = make_legend_labels(classes)
 
-m = folium.Map(location=[0.7870908235692126, 110.27529459792473], zoom_start=12, tiles="CartoDB dark_matter")
+m = folium.Map(
+    location=[0.7870908235692126, 110.27529459792473],
+    zoom_start=12,
+    tiles="CartoDB dark_matter"
+)
 
-# Layer 1 - Area CMI
-folium.GeoJson(
-    geojson1, name="Area CMI",
-    style_function=lambda f: {
-        "fillColor": "transparent", "color": "#9B59B6", "weight": 2, "fillOpacity": 0,
-    }
+# LULC Tile
+tiles_url = "https://gis-carbonx.github.io/patrol-vis-map/data/Tiles/{z}/{x}/{y}.png"
+folium.TileLayer(
+    tiles=tiles_url,
+    attr="LULC Map",
+    name="LULC 2023",
+    overlay=True,
+    control=False,
+    show=lulc_visible,
+    opacity=lulc_opacity,
+    min_zoom=3,
+    max_zoom=18
 ).add_to(m)
 
-# Layer 2 - Grid
-grid_group = folium.FeatureGroup(name="Grid Intensitas Kamera", show=True)
-for i, feature in enumerate(geojson2["features"]):
-    count = grid_camera_count.get(i, 0)
-    color = get_color(count)
-    fo    = get_fill_opacity(count)
+# Area CMI
+if cmi_visible:
     folium.GeoJson(
-        feature,
-        style_function=lambda f, c=color, fo=fo: {
-            "fillColor": c if c else "transparent",
-            "fillOpacity": fo,
-            "color": c if c else "#808080",
-            "weight": 1.5 if c else 1,
-        },
-        tooltip=f"Jumlah Kamera: {count}" if count > 0 else "Tidak ada kamera"
-    ).add_to(grid_group)
-grid_group.add_to(m)
+        geojson1, name="Area CMI",
+        style_function=lambda f: {
+            "fillColor": "transparent",
+            "color": "#9B59B6",
+            "weight": 2,
+            "fillOpacity": 0,
+        }
+    ).add_to(m)
 
-# Layer 3 - Forest Area (default OFF)
-forest_group = folium.FeatureGroup(name="Forest Area", show=False)
-folium.GeoJson(
-    geojson3,
-    style_function=lambda f: {
-        "fillColor": "#228B22", "fillOpacity": 0.25,
-        "color": "#228B22", "weight": 1,
-    }
-).add_to(forest_group)
-forest_group.add_to(m)
+# Grid
+if grid_visible:
+    grid_group = folium.FeatureGroup(name="Grid Intensitas Kamera", show=True)
+    for i, feature in enumerate(geojson2["features"]):
+        count = grid_camera_count.get(i, 0)
+        color = get_color(count)
+        fo    = get_fill_opacity(count)
+        folium.GeoJson(
+            feature,
+            style_function=lambda f, c=color, fo=fo: {
+                "fillColor": c if c else "transparent",
+                "fillOpacity": fo,
+                "color": c if c else "#808080",
+                "weight": 1.5 if c else 1,
+            },
+            tooltip=f"Jumlah Kamera: {count}" if count > 0 else "Tidak ada kamera"
+        ).add_to(grid_group)
+    grid_group.add_to(m)
 
-# Legenda
-legend_items_html = ""
-for i, label in enumerate(legend_labels):
-    legend_items_html += f"""
-    <div style="display:flex; align-items:center; margin-bottom:7px;">
-        <div style="width:20px; height:20px; background:{colors[i]};
-                    opacity:{opacities[i]+0.3}; border-radius:3px;
-                    margin-right:10px; flex-shrink:0;"></div>
-        <span>{label}</span>
-    </div>"""
+# map legend
+legend_sections = []
 
-legend_items_html += """
-    <div style="display:flex; align-items:center; margin-bottom:7px;">
-        <div style="width:20px; height:20px; background:transparent;
-                    border:1px solid #808080; border-radius:3px;
-                    margin-right:10px; flex-shrink:0;"></div>
-        <span>Tidak ada kamera</span>
-    </div>
-    <hr style="border-color:#374151; margin:8px 0;">
-    <div style="display:flex; align-items:center; margin-bottom:7px;">
-        <div style="width:20px; height:20px; background:#228B22; opacity:0.55;
-                    border-radius:3px; margin-right:10px; flex-shrink:0;"></div>
-        <span>Forest Area</span>
-    </div>
-    <div style="display:flex; align-items:center; margin-bottom:7px;">
-        <div style="width:20px; height:20px; background:transparent;
+if grid_visible:
+    grid_html = '<b style="font-size:13px; color:#fff;">Intensitas Camera Trap</b><hr style="border-color:#374151; margin:6px 0;">'
+    for i, label in enumerate(legend_labels):
+        grid_html += f"""
+        <div style="display:flex; align-items:center; margin-bottom:6px;">
+            <div style="width:18px; height:18px; background:{colors[i]};
+                        opacity:{base_opacities[i]+0.3}; border-radius:3px;
+                        margin-right:8px; flex-shrink:0;"></div>
+            <span>{label}</span>
+        </div>"""
+    grid_html += """
+        <div style="display:flex; align-items:center; margin-bottom:4px;">
+            <div style="width:18px; height:18px; background:transparent;
+                        border:1px solid #808080; border-radius:3px;
+                        margin-right:8px; flex-shrink:0;"></div>
+            <span>Tidak ada kamera</span>
+        </div>"""
+    legend_sections.append(grid_html)
+
+if cmi_visible:
+    sep = '<hr style="border-color:#374151; margin:6px 0;">' if legend_sections else ''
+    legend_sections.append(f"""{sep}
+    <div style="display:flex; align-items:center; margin-bottom:4px;">
+        <div style="width:18px; height:18px; background:transparent;
                     border:2px solid #9B59B6; border-radius:3px;
-                    margin-right:10px; flex-shrink:0;"></div>
+                    margin-right:8px; flex-shrink:0;"></div>
         <span>Area CMI</span>
-    </div>
-    <div style="display:flex; align-items:center;">
-        <div style="width:20px; height:20px; background:#00BFFF;
-                    border-radius:50%; margin-right:10px; flex-shrink:0;"></div>
+    </div>""")
+
+if cam_visible:
+    sep = '<hr style="border-color:#374151; margin:6px 0;">' if legend_sections else ''
+    legend_sections.append(f"""{sep}
+    <div style="display:flex; align-items:center; margin-bottom:4px;">
+        <div style="width:18px; height:18px; background:#00BFFF;
+                    border-radius:50%; margin-right:8px; flex-shrink:0;"></div>
         <span>Lokasi Kamera</span>
-    </div>
-"""
+    </div>""")
 
-legend_html = f"""
-<div style="position:fixed; bottom:30px; right:10px; z-index:9999;
-    background:rgba(15,20,30,0.92); border:1px solid #374151;
-    border-radius:10px; padding:14px 18px; font-family:Arial;
-    font-size:13px; color:#f9fafb; min-width:200px;
-    box-shadow:0 4px 12px rgba(0,0,0,0.5);">
-    <b style="font-size:14px; color:#fff;">📷 Intensitas Camera Trap</b>
-    <hr style="border-color:#374151; margin:8px 0;">
-    {legend_items_html}
-</div>
-"""
-m.get_root().html.add_child(folium.Element(legend_html))
+if legend_sections:
+    legend_html = f"""
+    <div style="position:fixed; bottom:30px; right:10px; z-index:9999;
+        background:rgba(15,20,30,0.92); border:1px solid #374151;
+        border-radius:10px; padding:14px 18px; font-family:Arial;
+        font-size:13px; color:#f9fafb; min-width:190px;
+        box-shadow:0 4px 12px rgba(0,0,0,0.5);">
+        {"".join(legend_sections)}
+    </div>"""
+    m.get_root().html.add_child(folium.Element(legend_html))
 
-point_group = folium.FeatureGroup(name="Satwa Liar", show=True)
+# CT point marker
+if cam_visible:
+    point_group = folium.FeatureGroup(name="Titik Kamera", show=True)
 
-for (lat_r, lon_r), coord_group in df.groupby(["Lat_r", "Lon_r"]):
-    lat = coord_group["Latitude"].iloc[0]
-    lon = coord_group["Longitude"].iloc[0]
+    for (lat_r, lon_r), coord_group in df.groupby(["Lat_r", "Lon_r"]):
+        lat = coord_group["Latitude"].iloc[0]
+        lon = coord_group["Longitude"].iloc[0]
 
-    jumlah          = int(coord_group["Jml_Tangkapan"].sum())
-    nama_lokasi_list = sorted(coord_group["Lokasi"].dropna().unique().tolist())
-    nama_lokasi_str  = " / ".join(nama_lokasi_list)
-    camera_list      = sorted(coord_group["ID_Camera"].dropna().unique().tolist())
-    jumlah_kamera    = len(camera_list)
-    camera_ids_str   = ", ".join(str(c) for c in camera_list)
+        jumlah           = int(coord_group["Jml_Tangkapan"].sum())
+        nama_lokasi_list = sorted(coord_group["Lokasi"].dropna().unique().tolist())
+        nama_lokasi_str  = " / ".join(nama_lokasi_list)
+        camera_list      = sorted(coord_group["ID_Camera"].dropna().unique().tolist())
+        jumlah_kamera    = len(camera_list)
+        camera_ids_str   = ", ".join(str(c) for c in camera_list)
 
-    spesies_list = coord_group[coord_group["Jml_Tangkapan"] > 0].groupby("Spesies").agg(
-        Nama_Lokal=("Nama_Lokal", "first"),
-        Jml=("Jml_Tangkapan", "sum")
-    ).reset_index()
+        spesies_list = coord_group[coord_group["Jml_Tangkapan"] > 0].groupby("Spesies").agg(
+            Nama_Lokal=("Nama_Lokal", "first"),
+            Jml=("Jml_Tangkapan", "sum")
+        ).reset_index()
 
-    spesies_rows = "".join([
-        f"<tr>"
-        f"<td style='padding:5px 8px; font-style:italic; white-space:nowrap;'>{r['Spesies']}</td>"
-        f"<td style='padding:5px 8px; white-space:nowrap;'>{r['Nama_Lokal']}</td>"
-        f"<td style='padding:5px 8px; text-align:center;'>{int(r['Jml'])}</td>"
-        f"</tr>"
-        for _, r in spesies_list.iterrows()
-    ])
+        spesies_rows = "".join([
+            f"<tr>"
+            f"<td style='padding:5px 8px; font-style:italic; white-space:nowrap;'>{r['Spesies']}</td>"
+            f"<td style='padding:5px 8px; white-space:nowrap;'>{r['Nama_Lokal']}</td>"
+            f"<td style='padding:5px 8px; text-align:center;'>{int(r['Jml'])}</td>"
+            f"</tr>"
+            for _, r in spesies_list.iterrows()
+        ])
 
-    uid = f"{str(lat_r).replace('.','_').replace('-','m')}_{str(lon_r).replace('.','_').replace('-','m')}"
+        uid = f"{str(lat_r).replace('.','_').replace('-','m')}_{str(lon_r).replace('.','_').replace('-','m')}"
 
-    popup_html = f"""
-        <div style="font-family:Arial; font-size:13px; width:500px; max-width:500px;">
-            <b style="font-size:15px;">{nama_lokasi_str}</b>
-            <hr style="margin:5px 0">
-            <b>Total Tangkapan:</b> {jumlah}<br>
-            <b>Jumlah Kamera:</b> {jumlah_kamera}<br>
-            <b>ID Kamera:</b> {camera_ids_str}<br><br>
-            <b>Daftar Spesies:</b>
-            <a href="#" onclick="
-                var el = document.getElementById('tbl_{uid}');
-                var lnk = document.getElementById('lnk_{uid}');
-                if(el.style.display==='none'){{
-                    el.style.display='block'; lnk.textContent='Show less ▲';
-                }} else {{
-                    el.style.display='none'; lnk.textContent='Show more ▼';
-                }}
-                return false;
-            " id="lnk_{uid}"
-            style="margin-left:8px; font-size:12px; color:#1a73e8; text-decoration:none;">
-                Show more ▼
-            </a>
-            <div id="tbl_{uid}" style="display:none; margin-top:8px; max-height:200px;
-                 overflow-y:auto; border:1px solid #ddd; border-radius:4px;">
-                <table style="width:100%; border-collapse:collapse;">
-                    <thead>
-                        <tr style="background:#eee; position:sticky; top:0;">
-                            <th style="text-align:left; padding:5px 8px;">Spesies</th>
-                            <th style="text-align:left; padding:5px 8px;">Nama Lokal</th>
-                            <th style="text-align:center; padding:5px 8px;">Jml</th>
-                        </tr>
-                    </thead>
-                    <tbody>{spesies_rows}</tbody>
-                </table>
+        popup_html = f"""
+            <div style="font-family:Arial; font-size:13px; width:500px; max-width:500px;">
+                <b style="font-size:15px;">{nama_lokasi_str}</b>
+                <hr style="margin:5px 0">
+                <b>Total Tangkapan:</b> {jumlah}<br>
+                <b>Jumlah Kamera:</b> {jumlah_kamera}<br>
+                <b>ID Kamera:</b> {camera_ids_str}<br><br>
+                <b>Daftar Spesies:</b>
+                <a href="#" onclick="
+                    var el = document.getElementById('tbl_{uid}');
+                    var lnk = document.getElementById('lnk_{uid}');
+                    if(el.style.display==='none'){{
+                        el.style.display='block'; lnk.textContent='Show less ▲';
+                    }} else {{
+                        el.style.display='none'; lnk.textContent='Show more ▼';
+                    }}
+                    return false;
+                " id="lnk_{uid}"
+                style="margin-left:8px; font-size:12px; color:#1a73e8; text-decoration:none;">
+                    Show more ▼
+                </a>
+                <div id="tbl_{uid}" style="display:none; margin-top:8px; max-height:200px;
+                     overflow-y:auto; border:1px solid #ddd; border-radius:4px;">
+                    <table style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr style="background:#eee; position:sticky; top:0;">
+                                <th style="text-align:left; padding:5px 8px;">Spesies</th>
+                                <th style="text-align:left; padding:5px 8px;">Nama Lokal</th>
+                                <th style="text-align:center; padding:5px 8px;">Jml</th>
+                            </tr>
+                        </thead>
+                        <tbody>{spesies_rows}</tbody>
+                    </table>
+                </div>
             </div>
-        </div>
-    """
+        """
 
-    folium.CircleMarker(
-        location=[lat, lon], radius=8,
-        color="#00BFFF", fill=True, fill_color="#00BFFF",
-        fill_opacity=0.8, weight=1.5,
-        popup=folium.Popup(popup_html, max_width=520),
-        tooltip=f"{lat_r}, {lon_r}"
-    ).add_to(point_group)
+        folium.CircleMarker(
+            location=[lat, lon],
+            radius=8,
+            color="#00BFFF",
+            fill=True,
+            fill_color="#00BFFF",
+            fill_opacity=0.8,
+            weight=1.5,
+            popup=folium.Popup(popup_html, max_width=520),
+            tooltip=f"{lat_r}, {lon_r}"
+        ).add_to(point_group)
 
-point_group.add_to(m)
-folium.LayerControl().add_to(m)
+    point_group.add_to(m)
 
 st_folium(m, width="100%", height=580)
