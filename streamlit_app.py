@@ -280,19 +280,40 @@ folium.LayerControl().add_to(m)
 
 map_data = st_folium(m, width="100%", height=580)
 
-#TREEMAP
+# ── TREEMAP ────────────────────────────────────────────────────────────────────
 st.divider()
-st.subheader("🌿 Treemap Tangkapan Spesies per Kamera")
+st.subheader("Treemap Tangkapan Spesies per Kamera")
 
-clicked_info = map_data.get("last_object_clicked_popup") if map_data else None
+clicked = map_data.get("last_object_clicked") if map_data else None
 
-all_cameras = sorted(df["ID_Camera"].dropna().unique().tolist())
-selected_cameras = st.multiselect(
-    "Filter berdasarkan ID Kamera (kosongkan = semua kamera)",
-    options=all_cameras,
-    default=[],
-    placeholder="Pilih satu atau lebih kamera..."
-)
+selected_cameras = []
+lokasi_label = "Semua Kamera"
+
+if clicked:
+    clicked_lat = round(clicked["lat"], COORD_PRECISION)
+    clicked_lng = round(clicked["lng"], COORD_PRECISION)
+
+    df["_dist"] = (
+        (df["Lat_r"] - clicked_lat).abs() +
+        (df["Lon_r"] - clicked_lng).abs()
+    )
+    nearest = df.loc[df["_dist"].idxmin()]
+    min_dist = nearest["_dist"]
+
+    TOLERANCE = 0.001
+    if min_dist < TOLERANCE:
+        matched_group = df[
+            (df["Lat_r"] == nearest["Lat_r"]) &
+            (df["Lon_r"] == nearest["Lon_r"])
+        ]
+        selected_cameras = sorted(matched_group["ID_Camera"].dropna().unique().tolist())
+        lokasi_list = sorted(matched_group["Lokasi"].dropna().unique().tolist())
+        lokasi_label = " / ".join(lokasi_list)
+
+if selected_cameras:
+    st.info(f"📍 Lokasi dipilih: **{lokasi_label}** — Kamera: {', '.join(str(c) for c in selected_cameras)}")
+else:
+    st.caption("💡 Klik salah satu titik kamera di peta untuk memfilter treemap. Saat ini menampilkan semua data.")
 
 df_filtered = df[df["Jml_Tangkapan"] > 0].copy()
 if selected_cameras:
@@ -305,10 +326,9 @@ df_tree = (
     .reset_index()
 )
 df_tree["Status_IUCN"] = df_tree["Status_IUCN"].fillna("Tidak diketahui")
-df_tree["Label"] = df_tree["Spesies"] + "<br><i>" + df_tree["Nama_Lokal"].fillna("") + "</i>"
 
 if df_tree.empty:
-    st.info("Tidak ada data tangkapan untuk filter yang dipilih.")
+    st.info("Tidak ada data tangkapan untuk lokasi ini.")
 else:
     fig = px.treemap(
         df_tree,
@@ -323,10 +343,7 @@ else:
             "Spesies": False,
         },
         color_discrete_sequence=px.colors.qualitative.Safe,
-        title="Distribusi Tangkapan per Spesies" + (
-            f" — Kamera: {', '.join(str(c) for c in selected_cameras)}"
-            if selected_cameras else " — Semua Kamera"
-        ),
+        title=f"Distribusi Tangkapan per Spesies — {lokasi_label}",
     )
     fig.update_traces(
         texttemplate="<b>%{label}</b><br>%{value} tangkapan",
