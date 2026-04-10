@@ -5,7 +5,6 @@ import requests
 import pandas as pd
 from shapely.geometry import Point, shape
 import json
-import plotly.express as px
 
 st.set_page_config(page_title="Draft - Monitoring camtrap", layout="wide")
 
@@ -55,6 +54,8 @@ df = df.rename(columns={
     df.columns[18]:  "Nama_File",
 })
 df = df.dropna(subset=["Latitude", "Longitude"])
+
+# Kolom N: konversi ke numerik, isi kosong dengan 0
 df["Jml_Tangkapan"] = pd.to_numeric(df["Jml_Tangkapan"], errors="coerce").fillna(0)
 
 COORD_PRECISION = 6
@@ -118,6 +119,7 @@ legend_labels = make_legend_labels(classes)
 
 m = folium.Map(location=[0.7870908235692126, 110.27529459792473], zoom_start=12, tiles="CartoDB dark_matter")
 
+# Layer 1 - Area CMI
 folium.GeoJson(
     geojson1, name="Area CMI",
     style_function=lambda f: {
@@ -125,6 +127,7 @@ folium.GeoJson(
     }
 ).add_to(m)
 
+# Layer 2 - Grid
 grid_group = folium.FeatureGroup(name="Grid Intensitas Kamera", show=True)
 for i, feature in enumerate(geojson2["features"]):
     count = grid_camera_count.get(i, 0)
@@ -142,6 +145,7 @@ for i, feature in enumerate(geojson2["features"]):
     ).add_to(grid_group)
 grid_group.add_to(m)
 
+# Layer 3 - Forest Area (default OFF)
 forest_group = folium.FeatureGroup(name="Forest Area", show=False)
 folium.GeoJson(
     geojson3,
@@ -152,6 +156,7 @@ folium.GeoJson(
 ).add_to(forest_group)
 forest_group.add_to(m)
 
+# Legenda
 legend_items_html = ""
 for i, label in enumerate(legend_labels):
     legend_items_html += f"""
@@ -278,86 +283,4 @@ for (lat_r, lon_r), coord_group in df.groupby(["Lat_r", "Lon_r"]):
 point_group.add_to(m)
 folium.LayerControl().add_to(m)
 
-map_data = st_folium(m, width="100%", height=580)
-
-# ── TREEMAP ────────────────────────────────────────────────────────────────────
-st.divider()
-st.subheader("Treemap Tangkapan Spesies per Kamera")
-
-clicked = map_data.get("last_object_clicked") if map_data else None
-
-selected_cameras = []
-lokasi_label = "Semua Kamera"
-
-if clicked:
-    clicked_lat = round(clicked["lat"], COORD_PRECISION)
-    clicked_lng = round(clicked["lng"], COORD_PRECISION)
-
-    df["_dist"] = (
-        (df["Lat_r"] - clicked_lat).abs() +
-        (df["Lon_r"] - clicked_lng).abs()
-    )
-    nearest = df.loc[df["_dist"].idxmin()]
-    min_dist = nearest["_dist"]
-
-    TOLERANCE = 0.001
-    if min_dist < TOLERANCE:
-        matched_group = df[
-            (df["Lat_r"] == nearest["Lat_r"]) &
-            (df["Lon_r"] == nearest["Lon_r"])
-        ]
-        selected_cameras = sorted(matched_group["ID_Camera"].dropna().unique().tolist())
-        lokasi_list = sorted(matched_group["Lokasi"].dropna().unique().tolist())
-        lokasi_label = " / ".join(lokasi_list)
-
-if selected_cameras:
-    st.info(f"📍 Lokasi dipilih: **{lokasi_label}** — Kamera: {', '.join(str(c) for c in selected_cameras)}")
-else:
-    st.caption("💡 Klik salah satu titik kamera di peta untuk memfilter treemap. Saat ini menampilkan semua data.")
-
-df_filtered = df[df["Jml_Tangkapan"] > 0].copy()
-if selected_cameras:
-    df_filtered = df_filtered[df_filtered["ID_Camera"].isin(selected_cameras)]
-
-df_tree = (
-    df_filtered
-    .groupby(["Kelas", "Spesies", "Nama_Lokal", "Status_IUCN"], dropna=False)
-    .agg(Total=("Jml_Tangkapan", "sum"))
-    .reset_index()
-)
-df_tree["Status_IUCN"] = df_tree["Status_IUCN"].fillna("Tidak diketahui")
-
-if df_tree.empty:
-    st.info("Tidak ada data tangkapan untuk lokasi ini.")
-else:
-    fig = px.treemap(
-        df_tree,
-        path=[px.Constant("Semua"), "Kelas", "Spesies"],
-        values="Total",
-        color="Kelas",
-        hover_data={
-            "Nama_Lokal": True,
-            "Status_IUCN": True,
-            "Total": True,
-            "Kelas": False,
-            "Spesies": False,
-        },
-        color_discrete_sequence=px.colors.qualitative.Safe,
-        title=f"Distribusi Tangkapan per Spesies — {lokasi_label}",
-    )
-    fig.update_traces(
-        texttemplate="<b>%{label}</b><br>%{value} tangkapan",
-        hovertemplate=(
-            "<b>%{label}</b><br>"
-            "Nama Lokal: %{customdata[0]}<br>"
-            "Status IUCN: %{customdata[1]}<br>"
-            "Total Tangkapan: %{value}<extra></extra>"
-        ),
-        root_color="rgba(0,0,0,0)",
-    )
-    fig.update_layout(
-        height=520,
-        margin=dict(t=50, l=10, r=10, b=10),
-        font_family="Arial",
-    )
-    st.plotly_chart(fig, use_container_width=True)
+st_folium(m, width="100%", height=580)
